@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2013 - 2017 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2013 - 2019 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -697,6 +697,11 @@ MulticopterPositionControl::run()
 			local_pos_sp.vx = PX4_ISFINITE(_control.getVelSp()(0)) ? _control.getVelSp()(0) : setpoint.vx;
 			local_pos_sp.vy = PX4_ISFINITE(_control.getVelSp()(1)) ? _control.getVelSp()(1) : setpoint.vy;
 			local_pos_sp.vz = PX4_ISFINITE(_control.getVelSp()(2)) ? _control.getVelSp()(2) : setpoint.vz;
+			local_pos_sp.acc_x = _control.getAccelerationSetpoint()(0);
+			local_pos_sp.acc_y = _control.getAccelerationSetpoint()(1);
+			local_pos_sp.acc_z = _control.getAccelerationSetpoint()(2);
+			printf("ACC AFTER CONTROL\n");
+			_control.getAccelerationSetpoint().print();
 			_control.getThrustSetpoint().copyTo(local_pos_sp.thrust);
 
 			// Publish local position setpoint
@@ -717,6 +722,9 @@ MulticopterPositionControl::run()
 
 			// Fill attitude setpoint. Attitude is computed from yaw and thrust setpoint.
 			_att_sp = ControlMath::thrustToAttitude(matrix::Vector3f(local_pos_sp.thrust), local_pos_sp.yaw);
+			if(_param_mpc_auto_mode.get() == 1) {
+				_att_sp = ControlMath::accelerationToAttitude(Vector3f(local_pos_sp.acc_x, local_pos_sp.acc_y, local_pos_sp.acc_z), local_pos_sp.yaw, _param_mpc_thr_hover.get());
+			}
 			_att_sp.yaw_sp_move_rate = _control.getYawspeedSetpoint();
 			_att_sp.fw_control_yaw = false;
 			_att_sp.apply_flaps = false;
@@ -885,6 +893,11 @@ MulticopterPositionControl::start_flight_task()
 		case 3:
 			error =  _flight_tasks.switchTask(FlightTaskIndex::ManualPositionSmoothVel);
 			break;
+
+		case 4:
+			error =  _flight_tasks.switchTask(FlightTaskIndex::ManualAcceleration);
+			break;
+
 
 		default:
 			error =  _flight_tasks.switchTask(FlightTaskIndex::ManualPosition);
