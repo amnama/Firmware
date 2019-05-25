@@ -1,7 +1,7 @@
 
 /****************************************************************************
  *
- *   Copyright (C) 2018 PX4 Development Team. All rights reserved.
+ *   Copyright (C) 2018 - 2019 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,47 +42,61 @@
 #include <mathlib/mathlib.h>
 
 using namespace matrix;
+
+static constexpr float A_GRAVITY = 9.80665f; // m/s^2 as defined by the SI standard
+
 namespace ControlMath
 {
 vehicle_attitude_setpoint_s thrustToAttitude(const Vector3f &thr_sp, const float yaw_sp)
 {
 	vehicle_attitude_setpoint_s att_sp = {};
+	att_sp = bodyzToAttitude(-thr_sp, yaw_sp);
+	att_sp.thrust_body[2] = -thr_sp.length();
+	return att_sp;
+}
+
+vehicle_attitude_setpoint_s accelerationToAttitude(const Vector3f &acc_sp, const float yaw_sp, const float hover_thrust)
+{
+	Vector3f body_z = Vector3f(-acc_sp(0), -acc_sp(1), A_GRAVITY);
+	vehicle_attitude_setpoint_s att_sp = bodyzToAttitude(body_z, yaw_sp);
+	att_sp.thrust_body[2] = acc_sp(2) * (hover_thrust / A_GRAVITY) - hover_thrust;
+	return att_sp;
+}
+
+vehicle_attitude_setpoint_s bodyzToAttitude(Vector3f body_z, const float yaw_sp) {
+	vehicle_attitude_setpoint_s att_sp = {};
 	att_sp.yaw_body = yaw_sp;
 
-	// desired body_z axis = -normalize(thrust_vector)
-	Vector3f body_x, body_y, body_z;
-
-	if (thr_sp.length() > 0.00001f) {
-		body_z = -thr_sp.normalized();
+	if (body_z.norm_squared() > 0.00001f) {
+		body_z = body_z.normalized();
 
 	} else {
-		// no thrust, set Z axis to safe value
+		// no direction from zero vecotr, set Z axis to safe value
 		body_z = Vector3f(0.f, 0.f, 1.f);
 	}
 
 	// vector of desired yaw direction in XY plane, rotated by PI/2
 	Vector3f y_C(-sinf(att_sp.yaw_body), cosf(att_sp.yaw_body), 0.0f);
 
-	if (fabsf(body_z(2)) > 0.000001f) {
-		// desired body_x axis, orthogonal to body_z
-		body_x = y_C % body_z;
+	// desired body_x axis, orthogonal to body_z
+	Vector3f body_x = y_C % body_z;
 
-		// keep nose to front while inverted upside down
-		if (body_z(2) < 0.0f) {
-			body_x = -body_x;
-		}
+	// keep nose to front while inverted upside down
+	if (body_z(2) < 0.0f) {
+		body_x = -body_x;
+	}
 
-		body_x.normalize();
-
-	} else {
+	if (fabsf(body_z(2)) < 0.000001f) {
 		// desired thrust is in XY plane, set X downside to construct correct matrix,
 		// but yaw component will not be used actually
 		body_x.zero();
 		body_x(2) = 1.0f;
 	}
 
+	body_x.normalize();
+
 	// desired body_y axis
-	body_y = body_z % body_x;
+	Vector3f body_y = body_z % body_x;
 
 	Dcmf R_sp;
 
@@ -93,7 +107,7 @@ vehicle_attitude_setpoint_s thrustToAttitude(const Vector3f &thr_sp, const float
 		R_sp(i, 2) = body_z(i);
 	}
 
-	//copy quaternion setpoint to attitude setpoint topic
+	// copy quaternion setpoint to attitude setpoint topic
 	Quatf q_sp = R_sp;
 	q_sp.copyTo(att_sp.q_d);
 	att_sp.q_d_valid = true;
@@ -102,7 +116,6 @@ vehicle_attitude_setpoint_s thrustToAttitude(const Vector3f &thr_sp, const float
 	Eulerf euler = R_sp;
 	att_sp.roll_body = euler(0);
 	att_sp.pitch_body = euler(1);
-	att_sp.thrust_body[2] = -thr_sp.length();
 
 	return att_sp;
 }

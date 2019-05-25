@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (C) 2018 PX4 Development Team. All rights reserved.
+ *   Copyright (C) 2018 - 2019 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -52,6 +52,22 @@ namespace ControlMath
  * @return vehicle_attitude_setpoints_s structure
  */
 vehicle_attitude_setpoint_s thrustToAttitude(const matrix::Vector3f &thr_sp, const float yaw_sp);
+
+/**
+ * Converts acceleration vector and yaw set-point to a desired attitude.
+ * @param acc_sp a 3D vector
+ * @param yaw_sp the desired yaw setpoint
+ * @return vehicle_attitude_setpoints_s struct for attitude controller
+ */
+vehicle_attitude_setpoint_s accelerationToAttitude(const matrix::Vector3f &acc_sp, const float yaw_sp, const float hover_thrust);
+
+/**
+ * Converts a body z vector and yaw set-point to a desired attitude.
+ * @param body_z a world frame 3D vector in direction of the desired body z axis
+ * @param yaw_sp the desired yaw setpoint
+ * @return vehicle_attitude_setpoints_s struct for attitude controller
+ */
+vehicle_attitude_setpoint_s bodyzToAttitude(matrix::Vector3f body_z, const float yaw_sp);
 
 /**
  * Outputs the sum of two vectors but respecting the limits and priority.
