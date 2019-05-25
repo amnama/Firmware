@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2017 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2019 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,37 +32,35 @@
  ****************************************************************************/
 
 /**
- * @file FlightManualPositionSmooth.cpp
+ * @file FlightTaskManualPosition.hpp
+ *
+ * Flight task for manual position controlled mode.
+ *
  */
 
-#include "FlightTaskManualPositionSmooth.hpp"
+#pragma once
 
-using namespace matrix;
+#include "FlightTaskManual.hpp"
 
-FlightTaskManualPositionSmooth::FlightTaskManualPositionSmooth() :
-	_smoothingXY(this, Vector2f(_velocity)),
-	_smoothingZ(this, _velocity(2), _sticks(2))
-{}
-
-void FlightTaskManualPositionSmooth::_updateSetpoints()
+class FlightTaskManualAcceleration : public FlightTaskManual
 {
-	/* Get yaw setpont, un-smoothed position setpoints.*/
-	FlightTaskManualPosition::_updateSetpoints();
+public:
+	FlightTaskManualAcceleration();
 
-	/* Smooth velocity setpoint in xy.*/
-	Vector2f vel(_velocity);
-	Vector2f vel_sp_xy(_velocity_setpoint);
-	_smoothingXY.updateMaxVelocity(_constraints.speed_xy);
-	_smoothingXY.smoothVelocity(vel_sp_xy, vel, _yaw, _yawspeed_setpoint, _deltatime);
-	_velocity_setpoint(0) = vel_sp_xy(0);
-	_velocity_setpoint(1) = vel_sp_xy(1);
+	virtual ~FlightTaskManualAcceleration() = default;
+	bool initializeSubscriptions(SubscriptionArray &subscription_array) override;
+	bool activate() override;
+	bool updateInitialize() override;
+	bool update() override;
 
-	/* Check for xy position lock.*/
-	_updateXYlock();
+protected:
+	DEFINE_PARAMETERS_CUSTOM_PARENT(FlightTaskManual,
+					(ParamFloat<px4::params::MPC_VEL_MANUAL>) _param_mpc_vel_manual,
+					(ParamFloat<px4::params::MPC_ACC_HOR_MAX>) _param_mpc_acc_hor_max,
+					(ParamFloat<px4::params::MPC_HOLD_MAX_XY>) _param_mpc_hold_max_xy,
+					(ParamFloat<px4::params::MPC_ACC_HOR_ESTM>) _param_mpc_acc_hor_estm,
+					(ParamFloat<px4::params::MPC_MAN_Y_MAX>) _param_mpc_man_y_max
+				       )
+private:
 
-	/* Smooth velocity in z.*/
-	_smoothingZ.smoothVelFromSticks(_velocity_setpoint(2), _deltatime);
-
-	/* Check for altitude lock*/
-	_updateAltitudeLock();
-}
+};
