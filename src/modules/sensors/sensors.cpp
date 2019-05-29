@@ -85,6 +85,7 @@
 #include <uORB/topics/sensor_preflight.h>
 #include <uORB/topics/vehicle_air_data.h>
 #include <uORB/topics/vehicle_magnetometer.h>
+#include <uORB/topics/vehicle_gps_position.h>
 
 #include <DevMgr.hpp>
 
@@ -167,6 +168,9 @@ private:
 	int		_diff_pres_sub{-1};			/**< raw differential pressure subscription */
 	int		_vcontrol_mode_sub{-1};		/**< vehicle control mode subscription */
 	int 		_params_sub{-1};			/**< notification of parameter updates */
+
+	////////////// Airspeed code////////
+	int     _gps_position_sub{-1};           // set variable to -1
 
 	orb_advert_t	_sensor_pub{nullptr};			/**< combined sensor data topic */
 	orb_advert_t	_airdata_pub{nullptr};			/**< combined sensor data topic */
@@ -294,70 +298,103 @@ Sensors::adc_init()
 	return OK;
 }
 
+////////////// Airspeed code////////
+
 void
 Sensors::diff_pres_poll(const vehicle_air_data_s &raw)
 {
-	bool updated;
-	orb_check(_diff_pres_sub, &updated);
+	bool updated; //bool is true faulse variable
+	orb_check(_gps_position_sub,&updated); // checking if global position is updated from GPS
 
-	if (updated) {
-		differential_pressure_s diff_pres;
-		int ret = orb_copy(ORB_ID(differential_pressure), _diff_pres_sub, &diff_pres);
-
-		if (ret != PX4_OK) {
+	if(updated)  //calc speed
+	{
+		vehicle_gps_position_s gps_pos;
+		int ret = orb_copy(ORB_ID(vehicle_gps_position),_gps_position_sub ,&gps_pos); // make a local copy of updated data
+		if (ret != PX4_OK)
+		{
 			return;
 		}
-
-		float air_temperature_celsius = (diff_pres.temperature > -300.0f) ? diff_pres.temperature :
-						(raw.baro_temp_celcius - PCB_TEMP_ESTIMATE_DEG);
-
+		float airspeed_gps = gps_pos.vel_m_s;
+		//printf("here2\n");
 		airspeed_s airspeed;
-		airspeed.timestamp = diff_pres.timestamp;
+		airspeed.timestamp = gps_pos.timestamp;
 
-		/* push data into validator */
-		float airspeed_input[3] = { diff_pres.differential_pressure_raw_pa, diff_pres.temperature, 0.0f };
+		airspeed.confidence = 1.0f;
 
-		_airspeed_validator.put(airspeed.timestamp, airspeed_input, diff_pres.error_count,
-					ORB_PRIO_HIGH);
+		airspeed.indicated_airspeed_m_s = airspeed_gps;
+		airspeed.true_airspeed_m_s = airspeed_gps;
+//		airspeed.true_airspeed_unfiltered_m_s = airspeed_gps;
+		airspeed.air_temperature_celsius = -1000.0f;
 
-		airspeed.confidence = _airspeed_validator.confidence(hrt_absolute_time());
+		//printf("airspeed: %0.3f\n",(double)airspeed.indicated_airspeed_m_s);
 
-		enum AIRSPEED_SENSOR_MODEL smodel;
-
-		switch ((diff_pres.device_id >> 16) & 0xFF) {
-		case DRV_DIFF_PRESS_DEVTYPE_SDP31:
-
-		/* fallthrough */
-		case DRV_DIFF_PRESS_DEVTYPE_SDP32:
-
-		/* fallthrough */
-		case DRV_DIFF_PRESS_DEVTYPE_SDP33:
-			/* fallthrough */
-			smodel = AIRSPEED_SENSOR_MODEL_SDP3X;
-			break;
-
-		default:
-			smodel = AIRSPEED_SENSOR_MODEL_MEMBRANE;
-			break;
-		}
-
-		/* don't risk to feed negative airspeed into the system */
-		airspeed.indicated_airspeed_m_s = calc_indicated_airspeed_corrected((enum AIRSPEED_COMPENSATION_MODEL)
-						  _parameters.air_cmodel,
-						  smodel, _parameters.air_tube_length, _parameters.air_tube_diameter_mm,
-						  diff_pres.differential_pressure_filtered_pa, raw.baro_pressure_pa,
-						  air_temperature_celsius);
-
-		airspeed.true_airspeed_m_s = calc_true_airspeed_from_indicated(airspeed.indicated_airspeed_m_s, raw.baro_pressure_pa,
-					     air_temperature_celsius);
-
-		airspeed.air_temperature_celsius = air_temperature_celsius;
-
-		if (PX4_ISFINITE(airspeed.indicated_airspeed_m_s) && PX4_ISFINITE(airspeed.true_airspeed_m_s)) {
-			int instance;
-			orb_publish_auto(ORB_ID(airspeed), &_airspeed_pub, &airspeed, &instance, ORB_PRIO_DEFAULT);
+		if (PX4_ISFINITE(airspeed.indicated_airspeed_m_s) && PX4_ISFINITE(airspeed.true_airspeed_m_s))
+		{
+					int instance;
+					orb_publish_auto(ORB_ID(airspeed), &_airspeed_pub, &airspeed, &instance, ORB_PRIO_DEFAULT);
 		}
 	}
+//	bool updated;
+//	orb_check(_diff_pres_sub, &updated);
+//
+//	if (updated) {
+//		differential_pressure_s diff_pres;
+//		int ret = orb_copy(ORB_ID(differential_pressure), _diff_pres_sub, &diff_pres);
+//
+//		if (ret != PX4_OK) {
+//			return;
+//		}
+//
+//		float air_temperature_celsius = (diff_pres.temperature > -300.0f) ? diff_pres.temperature :
+//						(raw.baro_temp_celcius - PCB_TEMP_ESTIMATE_DEG);
+//
+//		airspeed_s airspeed;
+//		airspeed.timestamp = diff_pres.timestamp;
+//
+//		/* push data into validator */
+//		float airspeed_input[3] = { diff_pres.differential_pressure_raw_pa, diff_pres.temperature, 0.0f };
+//
+//		_airspeed_validator.put(airspeed.timestamp, airspeed_input, diff_pres.error_count,
+//					ORB_PRIO_HIGH);
+//
+//		airspeed.confidence = _airspeed_validator.confidence(hrt_absolute_time());
+//
+//		enum AIRSPEED_SENSOR_MODEL smodel;
+//
+//		switch ((diff_pres.device_id >> 16) & 0xFF) {
+//		case DRV_DIFF_PRESS_DEVTYPE_SDP31:
+//
+//		/* fallthrough */
+//		case DRV_DIFF_PRESS_DEVTYPE_SDP32:
+//
+//		/* fallthrough */
+//		case DRV_DIFF_PRESS_DEVTYPE_SDP33:
+//			/* fallthrough */
+//			smodel = AIRSPEED_SENSOR_MODEL_SDP3X;
+//			break;
+//
+//		default:
+//			smodel = AIRSPEED_SENSOR_MODEL_MEMBRANE;
+//			break;
+//		}
+//
+//		/* don't risk to feed negative airspeed into the system */
+//		airspeed.indicated_airspeed_m_s = calc_indicated_airspeed_corrected((enum AIRSPEED_COMPENSATION_MODEL)
+//						  _parameters.air_cmodel,
+//						  smodel, _parameters.air_tube_length, _parameters.air_tube_diameter_mm,
+//						  diff_pres.differential_pressure_filtered_pa, raw.baro_pressure_pa,
+//						  air_temperature_celsius);
+//
+//		airspeed.true_airspeed_m_s = calc_true_airspeed_from_indicated(airspeed.indicated_airspeed_m_s, raw.baro_pressure_pa,
+//					     air_temperature_celsius);
+//
+//		airspeed.air_temperature_celsius = air_temperature_celsius;
+//
+//		if (PX4_ISFINITE(airspeed.indicated_airspeed_m_s) && PX4_ISFINITE(airspeed.true_airspeed_m_s)) {
+//			int instance;
+//			orb_publish_auto(ORB_ID(airspeed), &_airspeed_pub, &airspeed, &instance, ORB_PRIO_DEFAULT);
+//		}
+//	}
 }
 
 void
@@ -601,6 +638,10 @@ Sensors::run()
 	/*
 	 * do subscriptions
 	 */
+	////////////// Airspeed code////////
+	_gps_position_sub = orb_subscribe(ORB_ID(vehicle_gps_position));
+	////////////////////////////////////
+
 	_diff_pres_sub = orb_subscribe(ORB_ID(differential_pressure));
 	_vcontrol_mode_sub = orb_subscribe(ORB_ID(vehicle_control_mode));
 	_params_sub = orb_subscribe(ORB_ID(parameter_update));
